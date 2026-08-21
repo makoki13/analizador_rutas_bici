@@ -3,14 +3,22 @@ import gradio as gr
 import ollama
 
 
-def generar_hoja_ruta(gpx_track_file, gpx_route_file, cuesheet_text):
+def generar_hoja_ruta(gpx_track_file, gpx_route_file, cuesheet_file):  # noqa: C901
     # 1. Comprobamos que el usuario ha subido los archivos mínimos
     if gpx_track_file is None and gpx_route_file is None:
         return "⚠️ Por favor, sube al menos un archivo GPX (Track o Route)."
-    if not cuesheet_text:
-        return "⚠️ Por favor, pega el contenido de tu cuesheet CSV."
+    if cuesheet_file is None:
+        return "⚠️ Por favor, sube el archivo CSV de la cuesheet."
 
-    # 2. Extraemos datos del GPX TRACK (Geometría y altimetría)
+    # 2. Leemos el archivo CSV (Cuesheet)
+    try:
+        # Gradio nos da la ruta del archivo temporal subido
+        with open(cuesheet_file, encoding='utf-8') as f:
+            cuesheet_text = f.read()
+    except Exception as e:
+        return f"Error leyendo el archivo CSV: {e}"
+
+    # 3. Extraemos datos del GPX TRACK (Geometría y altimetría)
     track_info = "No se proporcionó GPX Track."
     if gpx_track_file:
         try:
@@ -31,15 +39,14 @@ def generar_hoja_ruta(gpx_track_file, gpx_route_file, cuesheet_text):
         except Exception as e:
             track_info = f"Error leyendo el GPX Track: {e}"
 
-    # 3. Extraemos datos del GPX ROUTE (Puntos de navegación/Waypoints)
+    # 4. Extraemos datos del GPX ROUTE (Puntos de navegación/Waypoints)
     route_info = "No se proporcionó GPX Route."
     if gpx_route_file:
         try:
-            with open(gpx_route_file, encoding='utf-8') as f:
+            with open(gpx_route_file, 'r', encoding='utf-8') as f:
                 gpx_content = f.read()
             gpx_route = gpxpy.parse(gpx_content)
 
-            # Extraemos los puntos de la ruta
             puntos_ruta = []
             if len(gpx_route.routes) > 0:
                 for point in gpx_route.routes[0].points:
@@ -51,7 +58,7 @@ def generar_hoja_ruta(gpx_track_file, gpx_route_file, cuesheet_text):
         except Exception as e:
             route_info = f"Error leyendo el GPX Route: {e}"
 
-    # 4. Preparamos el texto para la IA (El Prompt Mejorado)
+    # 5. Preparamos el texto para la IA (El Prompt Mejorado)
     texto_para_ia = f"""Eres un director deportivo de ciclismo experto en crear hojas de ruta (rutómetros) y analizar recorridos.
 Tienes tres fuentes de información para cruzar:
 
@@ -75,7 +82,7 @@ REGLAS DE EXCLUSIÓN: Omite SOLO las líneas que digan "Keep right" o "Keep left
 Formato estricto: "Km [Distancia] - [Dirección] - [Nombre de la calle]".
 """
 
-    # 5. Hablamos con la IA LOCAL usando Ollama
+    # 6. Hablamos con la IA LOCAL usando Ollama
     try:
         respuesta = ollama.chat(
             model='qwen2.5:3b',
@@ -86,19 +93,19 @@ Formato estricto: "Km [Distancia] - [Dirección] - [Nombre de la calle]".
     except Exception as e:
         return f"Parece que Ollama no está corriendo o el modelo no se ha descargado aún. Error: {e}"
 
-# 6. Construimos la interfaz visual (Ahora con 3 entradas)
+# 7. Construimos la interfaz visual (Ahora con 3 botones de subida de archivos)
 interfaz = gr.Interface(
     fn=generar_hoja_ruta,
     inputs=[
         gr.File(label="1. Sube tu GPX Track (Geometría)", file_types=[".gpx"]),
         gr.File(label="2. Sube tu GPX Route (Navegación)", file_types=[".gpx"]),
-        gr.Textbox(lines=15, label="3. Pega aquí tu Cuesheet (CSV)", placeholder="Pega aquí el contenido de tu archivo CSV...")
+        gr.File(label="3. Sube tu Cuesheet (CSV)", file_types=[".csv", ".txt"])
     ],
     outputs=gr.Textbox(lines=25, label="4. Rutómetro y Análisis"),
     title="🚴‍♂️ Analizador de Rutas en Bicicleta IA (100% Local)",
-    description="Sube el Track, el Route y pega la cuesheet para generar el documento para el manillar."
+    description="Sube el Track, el Route y el CSV para generar el documento para el manillar."
 )
 
-# 7. Lanzamos la app
+# 8. Lanzamos la app
 if __name__ == "__main__":
     interfaz.launch()
