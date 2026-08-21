@@ -1,8 +1,10 @@
-import tempfile  # Librería para crear archivos temporales
+import tempfile
 
 import gpxpy
 import gradio as gr
 import ollama
+
+import config  # ¡Importamos nuestro archivo de configuración!
 
 
 def generar_hoja_ruta(gpx_track_file, gpx_route_file, cuesheet_file):  # noqa: C901
@@ -59,52 +61,36 @@ def generar_hoja_ruta(gpx_track_file, gpx_route_file, cuesheet_file):  # noqa: C
         except Exception as e:
             route_info = f"Error leyendo el GPX Route: {e}"
 
-    # 5. Preparamos el texto para la IA (El Prompt Mejorado)
-    texto_para_ia = f"""Eres un director deportivo de ciclismo experto en crear hojas de ruta (rutómetros) y analizar recorridos.
-Tienes tres fuentes de información para cruzar:
+    # 5. Preparamos el texto para la IA usando la plantilla de config.py
+    texto_para_ia = config.PROMPT_SISTEMA.format(
+        track_info=track_info,
+        route_info=route_info,
+        cuesheet_text=cuesheet_text
+    )
 
-1. RESUMEN DEL GPX TRACK (Geometría y altimetría real):
-{track_info}
-
-2. GPX ROUTE (Nodos de navegación con sus nombres):
-{route_info}
-
-3. CUESHEET (Indicaciones de giro en formato CSV de RideWithGPS):
-{cuesheet_text}
-
-Tu tarea es crear el RUTÓMETRO DEFINITIVO PARA EL CICLISTA. Sigue ESTRICTAMENTE estas reglas:
-
-1. ANÁLISIS DEL RECORRIDO:
-Escribe un párrafo resumiendo la ruta basándote en la distancia y desniveles reales del GPX Track. SÉ REALISTA con la dificultad.
-
-2. HOJA DE GIRA PARA EL MANILLAR (Rutómetro):
-Crea una lista que el ciclista pueda imprimir. Debes INCLUIR TODOS LOS GIROS REALES donde cambie el nombre de la calle o carretera, cruzando la información de la Cuesheet con los nombres del GPX Route.
-REGLAS DE EXCLUSIÓN: Omite SOLO las líneas que digan "Keep right" o "Keep left" y las rotondas donde se diga "Straight" o "Continue" si no hay cambio de carretera.
-Formato estricto: "Km [Distancia] - [Dirección] - [Nombre de la calle]".
-"""
-
-    # 6. Hablamos con la IA LOCAL usando Ollama
+    # 6. Hablamos con la IA LOCAL usando Ollama y las variables de config.py
     try:
         respuesta = ollama.chat(
-            model='qwen2.5:3b',
+            model=config.MODELO_IA,
             messages=[{'role': 'user', 'content': texto_para_ia}],
-            options={'temperature': 0.3}
+            options={
+                'temperature': config.TEMPERATURA,
+                'num_predict': config.MAX_TOKENS # En Ollama, max_tokens se llama num_predict
+            }
         )
         resultado = respuesta['message']['content']
 
-        # --- NUEVO: Guardamos el resultado en un archivo temporal para descargar ---
-        # Creamos un archivo temporal con extensión .txt
+        # Guardamos el resultado en un archivo temporal para descargar
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', encoding='utf-8') as temp_file:
             temp_file.write(resultado)
-            ruta_archivo = temp_file.name # Guardamos la ruta donde se ha creado
+            ruta_archivo = temp_file.name
 
-        # Devolvemos el texto para la pantalla Y la ruta del archivo para el botón de descarga
         return resultado, ruta_archivo
 
     except Exception as e:
         return f"Parece que Ollama no está corriendo o el modelo no se ha descargado aún. Error: {e}", None
 
-# 7. Construimos la interfaz visual (Ahora con 2 salidas: Texto y Archivo)
+# 7. Construimos la interfaz visual
 interfaz = gr.Interface(
     fn=generar_hoja_ruta,
     inputs=[
@@ -114,7 +100,7 @@ interfaz = gr.Interface(
     ],
     outputs=[
         gr.Textbox(lines=25, label="4. Rutómetro y Análisis (Pantalla)"),
-        gr.File(label="5. Descargar Rutómetro (.txt)") # <-- Nuevo botón de descarga
+        gr.File(label="5. Descargar Rutómetro (.txt)")
     ],
     title="🚴‍♂️ Analizador de Rutas en Bicicleta IA (100% Local)",
     description="Sube el Track, el Route y el CSV para generar el documento para el manillar."
