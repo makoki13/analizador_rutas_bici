@@ -1,3 +1,5 @@
+import tempfile  # Librería para crear archivos temporales
+
 import gpxpy
 import gradio as gr
 import ollama
@@ -6,17 +8,16 @@ import ollama
 def generar_hoja_ruta(gpx_track_file, gpx_route_file, cuesheet_file):  # noqa: C901
     # 1. Comprobamos que el usuario ha subido los archivos mínimos
     if gpx_track_file is None and gpx_route_file is None:
-        return "⚠️ Por favor, sube al menos un archivo GPX (Track o Route)."
+        return "⚠️ Por favor, sube al menos un archivo GPX (Track o Route).", None
     if cuesheet_file is None:
-        return "⚠️ Por favor, sube el archivo CSV de la cuesheet."
+        return "⚠️ Por favor, sube el archivo CSV de la cuesheet.", None
 
     # 2. Leemos el archivo CSV (Cuesheet)
     try:
-        # Gradio nos da la ruta del archivo temporal subido
         with open(cuesheet_file, encoding='utf-8') as f:
             cuesheet_text = f.read()
     except Exception as e:
-        return f"Error leyendo el archivo CSV: {e}"
+        return f"Error leyendo el archivo CSV: {e}", None
 
     # 3. Extraemos datos del GPX TRACK (Geometría y altimetría)
     track_info = "No se proporcionó GPX Track."
@@ -43,7 +44,7 @@ def generar_hoja_ruta(gpx_track_file, gpx_route_file, cuesheet_file):  # noqa: C
     route_info = "No se proporcionó GPX Route."
     if gpx_route_file:
         try:
-            with open(gpx_route_file, 'r', encoding='utf-8') as f:
+            with open(gpx_route_file, encoding='utf-8') as f:
                 gpx_content = f.read()
             gpx_route = gpxpy.parse(gpx_content)
 
@@ -89,11 +90,21 @@ Formato estricto: "Km [Distancia] - [Dirección] - [Nombre de la calle]".
             messages=[{'role': 'user', 'content': texto_para_ia}],
             options={'temperature': 0.3}
         )
-        return respuesta['message']['content']
-    except Exception as e:
-        return f"Parece que Ollama no está corriendo o el modelo no se ha descargado aún. Error: {e}"
+        resultado = respuesta['message']['content']
 
-# 7. Construimos la interfaz visual (Ahora con 3 botones de subida de archivos)
+        # --- NUEVO: Guardamos el resultado en un archivo temporal para descargar ---
+        # Creamos un archivo temporal con extensión .txt
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', encoding='utf-8') as temp_file:
+            temp_file.write(resultado)
+            ruta_archivo = temp_file.name # Guardamos la ruta donde se ha creado
+
+        # Devolvemos el texto para la pantalla Y la ruta del archivo para el botón de descarga
+        return resultado, ruta_archivo
+
+    except Exception as e:
+        return f"Parece que Ollama no está corriendo o el modelo no se ha descargado aún. Error: {e}", None
+
+# 7. Construimos la interfaz visual (Ahora con 2 salidas: Texto y Archivo)
 interfaz = gr.Interface(
     fn=generar_hoja_ruta,
     inputs=[
@@ -101,7 +112,10 @@ interfaz = gr.Interface(
         gr.File(label="2. Sube tu GPX Route (Navegación)", file_types=[".gpx"]),
         gr.File(label="3. Sube tu Cuesheet (CSV)", file_types=[".csv", ".txt"])
     ],
-    outputs=gr.Textbox(lines=25, label="4. Rutómetro y Análisis"),
+    outputs=[
+        gr.Textbox(lines=25, label="4. Rutómetro y Análisis (Pantalla)"),
+        gr.File(label="5. Descargar Rutómetro (.txt)") # <-- Nuevo botón de descarga
+    ],
     title="🚴‍♂️ Analizador de Rutas en Bicicleta IA (100% Local)",
     description="Sube el Track, el Route y el CSV para generar el documento para el manillar."
 )
